@@ -1,0 +1,3 @@
+testdata/vectors.json text eol=lf
+testdata/*.bao binary
+testdata/*.obao binary
