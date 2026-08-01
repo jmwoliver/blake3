@@ -65,6 +65,17 @@ func Eigentrees(counter uint64, chunks uint64) (trees []int) {
 // CompressEigentree compresses a buffer of 2^n chunks in parallel, returning
 // their root node.
 func CompressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32) Node {
+	return compressEigentree(buf, key, counter, flags, true)
+}
+
+// CompressEigentreeSerial is equivalent to CompressEigentree but does not
+// create goroutines. It is useful when the caller already parallelizes
+// independent messages.
+func CompressEigentreeSerial(buf []byte, key *[8]uint32, counter uint64, flags uint32) Node {
+	return compressEigentree(buf, key, counter, flags, false)
+}
+
+func compressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32, parallel bool) Node {
 	if numChunks := uint64(len(buf) / ChunkSize); bits.OnesCount64(numChunks) != 1 {
 		panic("non-power-of-two eigentree size")
 	} else if numChunks == 1 {
@@ -77,7 +88,7 @@ func CompressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32)
 		return CompressBuffer((*[MaxSIMD * ChunkSize]byte)(buf[:MaxSIMD*ChunkSize]), buflen, key, counter, flags)
 	} else {
 		cvs := make([][8]uint32, numChunks/MaxSIMD)
-		parallelFor(len(cvs), func(i int) {
+		compressGroup := func(i int) {
 			start := i * MaxSIMD * ChunkSize
 			cvs[i] = ChainingValue(CompressBuffer(
 				(*[MaxSIMD * ChunkSize]byte)(buf[start:]),
@@ -86,7 +97,14 @@ func CompressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32)
 				counter+uint64(MaxSIMD*i),
 				flags,
 			))
-		})
+		}
+		if parallel {
+			parallelFor(len(cvs), compressGroup)
+		} else {
+			for i := range cvs {
+				compressGroup(i)
+			}
+		}
 
 		var rec func(cvs [][8]uint32) Node
 		rec = func(cvs [][8]uint32) Node {

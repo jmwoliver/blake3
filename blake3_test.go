@@ -268,6 +268,21 @@ func TestSplitWrite(t *testing.T) {
 	}
 }
 
+func TestNewSerialMatchesNew(t *testing.T) {
+	for _, size := range []int{0, 1, 64, 1024, 8192, 65536, 131072, len(testInput)} {
+		input := testInput[:size]
+		for _, key := range [][]byte{nil, []byte(testVectors.Key)} {
+			parallel := blake3.New(64, key)
+			serial := blake3.NewSerial(64, key)
+			_, _ = parallel.Write(input)
+			_, _ = serial.Write(input)
+			if got, want := serial.Sum(nil), parallel.Sum(nil); !bytes.Equal(got, want) {
+				t.Fatalf("input length %d key=%t: serial mismatch\nwant %x\n got %x", size, key != nil, want, got)
+			}
+		}
+	}
+}
+
 type nopReader struct{}
 
 func (nopReader) Read(p []byte) (int, error) { return len(p), nil }

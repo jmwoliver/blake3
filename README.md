@@ -20,6 +20,9 @@ Architecture dispatch is internal to the module:
   portable single-node compressor for small messages and Merkle parents.
 - Other architectures use portable Go.
 
+`NewSerial` provides the same streaming API without internal worker
+goroutines for applications that already batch independent messages.
+
 The ARM64 kernels were ported from `goforge.dev/blake3sum` v1.0.0. See
 `THIRD_PARTY_NOTICES.md`, `LICENSE`, and `LICENSE-GOFORGE` for provenance and
 license terms.

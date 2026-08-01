@@ -34,6 +34,7 @@ type Hasher struct {
 
 	buf    [guts.ChunkSize]byte
 	buflen int
+	serial bool
 }
 
 func (h *Hasher) hasSubtreeAtHeight(i int) bool {
@@ -88,11 +89,17 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		}
 		full := p[:len(p)-rem]
 		trees := guts.Eigentrees(h.counter, uint64(len(full)/guts.ChunkSize))
-		if len(full) < parallelWriteThreshold || len(trees) == 1 {
+		if h.serial || len(full) < parallelWriteThreshold || len(trees) == 1 {
 			offset, counter := 0, h.counter
 			for _, height := range trees {
 				size := (1 << height) * guts.ChunkSize
-				cv := guts.ChainingValue(guts.CompressEigentree(full[offset:offset+size], &h.key, counter, h.flags))
+				var node guts.Node
+				if h.serial {
+					node = guts.CompressEigentreeSerial(full[offset:offset+size], &h.key, counter, h.flags)
+				} else {
+					node = guts.CompressEigentree(full[offset:offset+size], &h.key, counter, h.flags)
+				}
+				cv := guts.ChainingValue(node)
 				h.pushSubtree(cv, height)
 				offset += size
 				counter += 1 << height
@@ -186,6 +193,14 @@ func New(size int, key []byte) *Hasher {
 		keyWords[i] = binary.LittleEndian.Uint32(key[i*4:])
 	}
 	return newHasher(keyWords, guts.FlagKeyedHash, size)
+}
+
+// NewSerial returns a Hasher that never creates internal worker goroutines.
+// It is intended for callers that already parallelize independent messages.
+func NewSerial(size int, key []byte) *Hasher {
+	h := New(size, key)
+	h.serial = true
+	return h
 }
 
 // Sum256 and Sum512 always use the same hasher state, so we can save some time
