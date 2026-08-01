@@ -38,27 +38,13 @@ func compressChunksNEON(cvs *[4][8]uint32, buf *[4 * ChunkSize]byte, key *[8]uin
 // CompressBuffer compresses up to MaxSIMD chunks in parallel and returns their
 // root node.
 func CompressBuffer(buf *[MaxSIMD * ChunkSize]byte, buflen int, key *[8]uint32, counter uint64, flags uint32) Node {
-	return compressBufferSlice(buf[:buflen], key, counter, flags)
-}
-
-// compressBufferSlice is the ARM64 slice-oriented bulk path. Unlike the AMD64
-// kernels, compressChunksNEON reads only complete four-chunk groups, so short
-// eigentrees do not need to be padded to MaxSIMD*ChunkSize.
-func compressBufferSlice(buf []byte, key *[8]uint32, counter uint64, flags uint32) Node {
-	buflen := len(buf)
 	if buflen <= ChunkSize {
-		return CompressChunk(buf, key, counter, flags)
+		return CompressChunk(buf[:buflen], key, counter, flags)
 	}
 	if !haveNEON {
-		var padded [MaxSIMD * ChunkSize]byte
-		copy(padded[:], buf)
-		return compressBufferGeneric(&padded, buflen, key, counter, flags)
+		return compressBufferGeneric(buf, buflen, key, counter, flags)
 	}
-	return compressBufferNEON(buf, key, counter, flags)
-}
 
-func compressBufferNEON(buf []byte, key *[8]uint32, counter uint64, flags uint32) Node {
-	buflen := len(buf)
 	var cvs [MaxSIMD][8]uint32
 	numChunks := uint64(buflen / ChunkSize)
 	var group uint64

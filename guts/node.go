@@ -70,7 +70,11 @@ func CompressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32)
 	} else if numChunks == 1 {
 		return CompressChunk(buf, key, counter, flags)
 	} else if numChunks <= MaxSIMD {
-		return compressBufferSlice(buf, key, counter, flags)
+		buflen := len(buf)
+		if cap(buf) < MaxSIMD*ChunkSize {
+			buf = append(buf, make([]byte, MaxSIMD*ChunkSize-len(buf))...)
+		}
+		return CompressBuffer((*[MaxSIMD * ChunkSize]byte)(buf[:MaxSIMD*ChunkSize]), buflen, key, counter, flags)
 	} else {
 		cvs := make([][8]uint32, numChunks/MaxSIMD)
 		parallelFor(len(cvs), func(i int) {
