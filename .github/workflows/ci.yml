@@ -11,6 +11,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         go: ['1.22.x', stable]
@@ -22,7 +23,11 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: true
       - run: go test ./...
-      - run: go vet ./...
+      # Luke Champine's inherited Avo-generated AMD64 assembly uses valid
+      # sub-word operands that asmdecl cannot model. The native SIMD job below
+      # differentially tests those entry points against the generic routines.
+      - name: Vet (except generated-assembly declarations)
+        run: go vet -asmdecl=false ./...
 
   amd64-simd:
     runs-on: ubuntu-24.04
