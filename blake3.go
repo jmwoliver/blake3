@@ -1,5 +1,5 @@
 // Package blake3 implements the BLAKE3 cryptographic hash function.
-package blake3 // import "github.com/jacobwoliver/blake3"
+package blake3 // import "github.com/jmwoliver/blake3"
 
 import (
 	"encoding/binary"
@@ -11,8 +11,8 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/jacobwoliver/blake3/bao"
-	"github.com/jacobwoliver/blake3/guts"
+	"github.com/jmwoliver/blake3/bao"
+	"github.com/jmwoliver/blake3/guts"
 )
 
 const (

@@ -6,7 +6,7 @@ and adds an ARM64 four-chunk NEON backend, bounded tree-hash scheduling, and
 zero-allocation keyed one-shot helpers.
 
 ```sh
-go get github.com/jacobwoliver/blake3
+go get github.com/jmwoliver/blake3
 ```
 
 `blake3` implements the [BLAKE3 cryptographic hash function](https://github.com/BLAKE3-team/BLAKE3).

@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jacobwoliver/blake3"
-	"github.com/jacobwoliver/blake3/guts"
+	"github.com/jmwoliver/blake3"
+	"github.com/jmwoliver/blake3/guts"
 )
 
 func toHex(data []byte) string { return hex.EncodeToString(data) }
