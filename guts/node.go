@@ -4,6 +4,8 @@ package guts
 
 import (
 	"math/bits"
+	"runtime"
+	"sync"
 )
 
 // Various constants.
@@ -98,7 +100,27 @@ func compressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32,
 				flags,
 			))
 		}
-		if parallel {
+		if parallel && len(cvs) <= runtime.GOMAXPROCS(0) {
+			// For a small tree, keep the compression call directly in each
+			// goroutine. This lets the compiler optimize the hot SIMD call site
+			// and preserves upstream's low-latency AMD64 path.
+			var wg sync.WaitGroup
+			wg.Add(len(cvs))
+			for i := range cvs {
+				go func(i int) {
+					defer wg.Done()
+					start := i * MaxSIMD * ChunkSize
+					cvs[i] = ChainingValue(CompressBuffer(
+						(*[MaxSIMD * ChunkSize]byte)(buf[start:]),
+						MaxSIMD*ChunkSize,
+						key,
+						counter+uint64(MaxSIMD*i),
+						flags,
+					))
+				}(i)
+			}
+			wg.Wait()
+		} else if parallel {
 			parallelFor(len(cvs), compressGroup)
 		} else {
 			for i := range cvs {
