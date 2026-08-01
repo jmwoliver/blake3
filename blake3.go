@@ -1,8 +1,7 @@
 // Package blake3 implements the BLAKE3 cryptographic hash function.
-package blake3 // import "lukechampine.com/blake3"
+package blake3 // import "github.com/jacobwoliver/blake3"
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"hash"
@@ -12,8 +11,15 @@ import (
 	"runtime"
 	"sync"
 
-	"lukechampine.com/blake3/bao"
-	"lukechampine.com/blake3/guts"
+	"github.com/jacobwoliver/blake3/bao"
+	"github.com/jacobwoliver/blake3/guts"
+)
+
+const (
+	// KeySize is the size of a BLAKE3 keyed-hash key in bytes.
+	KeySize = 32
+	// ChunkSize is the size of a BLAKE3 chunk in bytes.
+	ChunkSize = guts.ChunkSize
 )
 
 // Hasher implements hash.Hash.
@@ -80,22 +86,35 @@ func (h *Hasher) Write(p []byte) (int, error) {
 		if rem == 0 {
 			rem = len(h.buf) // don't prematurely compress
 		}
-		eigenbuf := bytes.NewBuffer(p[:len(p)-rem])
-		trees := guts.Eigentrees(h.counter, uint64(eigenbuf.Len()/guts.ChunkSize))
-		cvs := make([][8]uint32, len(trees))
-		counter := h.counter
-		var wg sync.WaitGroup
-		for i, height := range trees {
-			wg.Add(1)
-			go func(i int, buf []byte, counter uint64) {
-				defer wg.Done()
-				cvs[i] = guts.ChainingValue(guts.CompressEigentree(buf, &h.key, counter, h.flags))
-			}(i, eigenbuf.Next((1<<height)*guts.ChunkSize), counter)
-			counter += 1 << height
-		}
-		wg.Wait()
-		for i, height := range trees {
-			h.pushSubtree(cvs[i], height)
+		full := p[:len(p)-rem]
+		trees := guts.Eigentrees(h.counter, uint64(len(full)/guts.ChunkSize))
+		if len(full) < parallelWriteThreshold || len(trees) == 1 {
+			offset, counter := 0, h.counter
+			for _, height := range trees {
+				size := (1 << height) * guts.ChunkSize
+				cv := guts.ChainingValue(guts.CompressEigentree(full[offset:offset+size], &h.key, counter, h.flags))
+				h.pushSubtree(cv, height)
+				offset += size
+				counter += 1 << height
+			}
+		} else {
+			cvs := make([][8]uint32, len(trees))
+			offsets := make([]int, len(trees))
+			counters := make([]uint64, len(trees))
+			offset, counter := 0, h.counter
+			for i, height := range trees {
+				offsets[i] = offset
+				counters[i] = counter
+				offset += (1 << height) * guts.ChunkSize
+				counter += 1 << height
+			}
+			parallelFor(len(trees), func(i int) {
+				size := (1 << trees[i]) * guts.ChunkSize
+				cvs[i] = guts.ChainingValue(guts.CompressEigentree(full[offsets[i]:offsets[i]+size], &h.key, counters[i], h.flags))
+			})
+			for i, height := range trees {
+				h.pushSubtree(cvs[i], height)
+			}
 		}
 		p = p[len(p)-rem:]
 	}
@@ -178,6 +197,46 @@ func Sum256(b []byte) (out [32]byte) {
 	out512 := Sum512(b)
 	copy(out[:], out512[:])
 	return
+}
+
+// Sum256Keyed returns the keyed BLAKE3 hash of b. Inputs of at most one BLAKE3
+// chunk are processed without allocating.
+func Sum256Keyed(key [KeySize]byte, b []byte) (out [32]byte) {
+	if len(b) <= guts.ChunkSize {
+		return Sum256KeyedChunk(key, b)
+	}
+
+	var keyWords [8]uint32
+	for i := range keyWords {
+		keyWords[i] = binary.LittleEndian.Uint32(key[i*4:])
+	}
+	h := Hasher{
+		key:   keyWords,
+		flags: guts.FlagKeyedHash,
+		size:  32,
+	}
+	_, _ = h.Write(b)
+	n := h.rootNode()
+	block := guts.WordsToBytes(guts.CompressNode(n))
+	copy(out[:], block[:])
+	return out
+}
+
+// Sum256KeyedChunk returns the keyed BLAKE3 hash of b without allocating. It
+// panics if b is larger than one BLAKE3 chunk.
+func Sum256KeyedChunk(key [KeySize]byte, b []byte) (out [32]byte) {
+	if len(b) > guts.ChunkSize {
+		panic("blake3: Sum256KeyedChunk input exceeds ChunkSize")
+	}
+	var keyWords [8]uint32
+	for i := range keyWords {
+		keyWords[i] = binary.LittleEndian.Uint32(key[i*4:])
+	}
+	n := guts.CompressChunk(b, &keyWords, 0, guts.FlagKeyedHash)
+	n.Flags |= guts.FlagRoot
+	block := guts.WordsToBytes(guts.CompressNode(n))
+	copy(out[:], block[:])
+	return out
 }
 
 // Sum512 returns the unkeyed BLAKE3 hash of b, truncated to 512 bits.

@@ -1,4 +1,4 @@
-module lukechampine.com/blake3
+module github.com/jacobwoliver/blake3
 
 go 1.22
 

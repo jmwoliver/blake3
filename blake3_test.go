@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"lukechampine.com/blake3"
-	"lukechampine.com/blake3/guts"
+	"github.com/jacobwoliver/blake3"
+	"github.com/jacobwoliver/blake3/guts"
 )
 
 func toHex(data []byte) string { return hex.EncodeToString(data) }
@@ -181,6 +181,39 @@ func TestSum(t *testing.T) {
 			t.Errorf("Sum512 output did not match Sum output:\n\texpected: %x...\n\t     got: %x...", exp512[:5], got512[:5])
 		}
 	}
+}
+
+func TestSum256Keyed(t *testing.T) {
+	var key [blake3.KeySize]byte
+	copy(key[:], testVectors.Key)
+	for _, vec := range testVectors.Cases {
+		in := testInput[:vec.InputLen]
+		got := blake3.Sum256Keyed(key, in)
+		if want := vec.KeyedHash[:len(got)*2]; toHex(got[:]) != want {
+			t.Errorf("input length %d: keyed output mismatch:\n\texpected: %v...\n\t     got: %v...", vec.InputLen, want[:10], toHex(got[:5]))
+		}
+	}
+}
+
+func TestSum256KeyedSmallInputsDoNotAllocate(t *testing.T) {
+	var key [blake3.KeySize]byte
+	for _, size := range []int{0, 32, 64, 65, blake3.ChunkSize} {
+		input := make([]byte, size)
+		if allocs := testing.AllocsPerRun(1_000, func() {
+			_ = blake3.Sum256KeyedChunk(key, input)
+		}); allocs != 0 {
+			t.Errorf("input length %d: got %.1f allocations, want 0", size, allocs)
+		}
+	}
+}
+
+func TestSum256KeyedChunkRejectsLargeInput(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected oversized input to panic")
+		}
+	}()
+	blake3.Sum256KeyedChunk([blake3.KeySize]byte{}, make([]byte, blake3.ChunkSize+1))
 }
 
 func TestReset(t *testing.T) {

@@ -4,7 +4,6 @@ package guts
 
 import (
 	"math/bits"
-	"sync"
 )
 
 // Various constants.
@@ -78,15 +77,16 @@ func CompressEigentree(buf []byte, key *[8]uint32, counter uint64, flags uint32)
 		return CompressBuffer((*[MaxSIMD * ChunkSize]byte)(buf[:MaxSIMD*ChunkSize]), buflen, key, counter, flags)
 	} else {
 		cvs := make([][8]uint32, numChunks/MaxSIMD)
-		var wg sync.WaitGroup
-		for i := range cvs {
-			wg.Add(1)
-			go func(i uint64) {
-				defer wg.Done()
-				cvs[i] = ChainingValue(CompressBuffer((*[MaxSIMD * ChunkSize]byte)(buf[i*MaxSIMD*ChunkSize:]), MaxSIMD*ChunkSize, key, counter+(MaxSIMD*i), flags))
-			}(uint64(i))
-		}
-		wg.Wait()
+		parallelFor(len(cvs), func(i int) {
+			start := i * MaxSIMD * ChunkSize
+			cvs[i] = ChainingValue(CompressBuffer(
+				(*[MaxSIMD * ChunkSize]byte)(buf[start:]),
+				MaxSIMD*ChunkSize,
+				key,
+				counter+uint64(MaxSIMD*i),
+				flags,
+			))
+		})
 
 		var rec func(cvs [][8]uint32) Node
 		rec = func(cvs [][8]uint32) Node {
