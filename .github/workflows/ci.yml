@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.22.x', stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+
+  amd64-simd:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+      - name: Record CPU features
+        run: grep -m1 -E 'model name|flags' /proc/cpuinfo
+      - name: Require native AVX2 differential coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="${RUNNER_TEMP}/amd64-simd-tests.txt"
+          go test -count=1 -v ./guts -run 'AVX' | tee "${output}"
+          if grep -E -- '--- SKIP: Test.*AVX2' "${output}"; then
+            printf 'GitHub runner did not expose AVX2\n' >&2
+            exit 1
+          fi
+      - name: Capture interleaved fork and upstream benchmarks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --branch v1.4.1 --depth 1 \
+            https://github.com/lukechampine/blake3.git "${RUNNER_TEMP}/upstream-blake3"
+          : >"${RUNNER_TEMP}/fork-amd64.txt"
+          : >"${RUNNER_TEMP}/upstream-amd64.txt"
+          for sample in {1..7}; do
+            if ((sample % 2 == 1)); then
+              go test -run '^$' -bench '^BenchmarkSum256$' -benchmem \
+                -benchtime=500ms -count=1 . >>"${RUNNER_TEMP}/fork-amd64.txt"
+              (cd "${RUNNER_TEMP}/upstream-blake3" && \
+                go test -run '^$' -bench '^BenchmarkSum256$' -benchmem \
+                  -benchtime=500ms -count=1 .) >>"${RUNNER_TEMP}/upstream-amd64.txt"
+            else
+              (cd "${RUNNER_TEMP}/upstream-blake3" && \
+                go test -run '^$' -bench '^BenchmarkSum256$' -benchmem \
+                  -benchtime=500ms -count=1 .) >>"${RUNNER_TEMP}/upstream-amd64.txt"
+              go test -run '^$' -bench '^BenchmarkSum256$' -benchmem \
+                -benchtime=500ms -count=1 . >>"${RUNNER_TEMP}/fork-amd64.txt"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amd64-simd-evidence
+          path: |
+            ${{ runner.temp }}/amd64-simd-tests.txt
+            ${{ runner.temp }}/fork-amd64.txt
+            ${{ runner.temp }}/upstream-amd64.txt
