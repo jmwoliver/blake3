@@ -6,6 +6,7 @@ package guts
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 func parallelFor(n int, fn func(int)) {
@@ -22,25 +23,20 @@ func parallelFor(n int, fn func(int)) {
 	if workers > n {
 		workers = n
 	}
+	var next atomic.Int64
 	var wg sync.WaitGroup
-	if n <= workers {
-		wg.Add(n)
-		for i := range n {
-			go func(i int) {
-				defer wg.Done()
-				fn(i)
-			}(i)
-		}
-	} else {
-		wg.Add(workers)
-		for worker := range workers {
-			go func(worker int) {
-				defer wg.Done()
-				for i := worker; i < n; i += workers {
-					fn(i)
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= n {
+					return
 				}
-			}(worker)
-		}
+				fn(i)
+			}
+		}()
 	}
 	wg.Wait()
 }
